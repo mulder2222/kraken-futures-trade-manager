@@ -9,7 +9,7 @@ use App\Enum\TradeStatus;
 use Doctrine\Bundle\DoctrineBundle\Repository\ServiceEntityRepository;
 use Doctrine\Persistence\ManagerRegistry;
 
-final class TradeRepository extends ServiceEntityRepository
+class TradeRepository extends ServiceEntityRepository
 {
     public function __construct(ManagerRegistry $registry)
     {
