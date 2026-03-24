@@ -10,21 +10,21 @@
         "doctrine/doctrine-migrations-bundle": "^3.3",
         "doctrine/orm": "^3.2",
         "monolog/monolog": "^3.7",
-        "symfony/clock": "^7.1 || ^8.0",
-        "symfony/console": "^7.1 || ^8.0",
-        "symfony/dependency-injection": "^7.1 || ^8.0",
-        "symfony/dotenv": "^7.1 || ^8.0",
-        "symfony/framework-bundle": "^7.1 || ^8.0",
-        "symfony/http-client": "^7.1 || ^8.0",
-        "symfony/lock": "^7.1 || ^8.0",
+        "symfony/clock": "^7.1",
+        "symfony/console": "^7.1",
+        "symfony/dependency-injection": "^7.1",
+        "symfony/dotenv": "^7.1",
+        "symfony/framework-bundle": "^7.1",
+        "symfony/http-client": "^7.1",
+        "symfony/lock": "^7.1",
         "symfony/monolog-bundle": "^3.10",
-        "symfony/runtime": "^7.1 || ^8.0",
-        "symfony/var-exporter": "^7.1 || ^8.0",
-        "symfony/yaml": "^7.1 || ^8.0"
+        "symfony/runtime": "^7.1",
+        "symfony/var-exporter": "^7.1",
+        "symfony/yaml": "^7.1"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.5",
-        "symfony/phpunit-bridge": "^7.1 || ^8.0"
+        "symfony/phpunit-bridge": "^7.1"
     },
     "autoload": {
         "psr-4": {
@@ -48,7 +48,7 @@
     "extra": {
         "symfony": {
             "allow-contrib": false,
-            "require": "^7.1 || ^8.0"
+            "require": "^7.1"
         }
     }
 }
