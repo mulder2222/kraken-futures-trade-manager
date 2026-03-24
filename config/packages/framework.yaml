@@ -6,5 +6,6 @@ framework:
     http_client:
         scoped_clients:
             kraken_futures.client:
+                base_uri: '%env(string:KRAKEN_FUTURES_BASE_URI)%'
                 headers:
                     Accept: 'application/json'
