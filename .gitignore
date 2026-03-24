@@ -2,4 +2,5 @@
 /var/
 /.env.local
 /.env.*.local
+/.env
 /.phpunit.result.cache
