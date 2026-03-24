@@ -225,6 +225,77 @@ final class TradeManagerService
         $this->entityManager->flush();
     }
 
+    public function closeActiveTrade(bool $execute = false): ?Trade
+    {
+        $lock = $this->lockFactory->createLock('trade-manager');
+        $lock->acquire(true);
+
+        try {
+            $trade = $this->tradeRepository->findActiveTrade();
+
+            if ($trade === null) {
+                return null;
+            }
+
+            if ($trade->isDryRun()) {
+                $trade->setStatus(TradeStatus::CLOSED);
+                $this->entityManager->flush();
+
+                return $trade;
+            }
+
+            if (!$execute) {
+                throw new InvalidTradeInputException('Live trades can only be closed with --execute. Use trade:reset only for local state reset.');
+            }
+
+            $position = $this->findPositionForTrade($trade);
+
+            if ($position !== null) {
+                $this->krakenClient->sendOrder($this->buildClosePositionPayload($trade, abs($position->size)));
+            }
+
+            $this->cleanupTradeOrders($trade, $this->krakenClient->getOpenOrders($trade->getSymbol()), true);
+            $trade->setStatus(TradeStatus::CLOSED);
+            $this->entityManager->flush();
+
+            $this->logger->info('Active trade closed', [
+                'trade_id' => $trade->getId(),
+                'symbol' => $trade->getSymbol(),
+            ]);
+
+            return $trade;
+        } finally {
+            $lock->release();
+        }
+    }
+
+    public function resetActiveTrade(): ?Trade
+    {
+        $lock = $this->lockFactory->createLock('trade-manager');
+        $lock->acquire(true);
+
+        try {
+            $trade = $this->tradeRepository->findActiveTrade();
+
+            if ($trade === null) {
+                return null;
+            }
+
+            $trade->setStatus(TradeStatus::CLOSED);
+            $this->entityManager->flush();
+
+            $this->logger->warning('Active trade reset locally', [
+                'trade_id' => $trade->getId(),
+                'symbol' => $trade->getSymbol(),
+                'dry_run' => $trade->isDryRun(),
+            ]);
+
+            return $trade;
+        } finally {
+            $lock->release();
+        }
+    }
+
     public function cleanupOrphanedOrders(string $symbol, bool $execute = false): int
     {
         if ($this->krakenClient->getOpenPositions($symbol) !== []) {
@@ -345,6 +416,17 @@ final class TradeManagerService
             'stopPrice' => $this->format($targetPrice),
             'reduceOnly' => 'true',
             'triggerSignal' => 'mark',
+        ];
+    }
+
+    private function buildClosePositionPayload(Trade $trade, float $size): array
+    {
+        return [
+            'symbol' => $trade->getSymbol(),
+            'side' => $trade->getSide()->exitOrderSide(),
+            'size' => $this->format($size),
+            'orderType' => 'market',
+            'reduceOnly' => 'true',
         ];
     }
 

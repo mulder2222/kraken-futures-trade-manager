@@ -53,6 +53,9 @@ php bin/console trade:open --side=long --size=1 --entry-type=limit --entry-price
 php bin/console trade:monitor
 php bin/console trade:monitor --execute
 php bin/console trade:status
+php bin/console trade:close
+php bin/console trade:close --execute
+php bin/console trade:reset
 php bin/console trade:cleanup
 php bin/console trade:cleanup --execute
 composer test
@@ -85,3 +88,11 @@ php bin/console doctrine:migrations:migrate
 - trades die zonder `--execute` zijn geopend worden als lokale dry-run trade opgeslagen
 - `trade:monitor` doet voor zulke trades geen Kraken API-calls
 - `trade:status` toont de opgeslagen trade gewoon zonder live exchange data op te halen
+- `trade:close` sluit een dry-run trade lokaal af
+- `trade:reset` reset alleen lokale state en stuurt nooit exchange-acties
+
+## Close en Reset
+
+- `trade:close --execute` is bedoeld voor live trades en sluit de resterende positie market reduce-only af, gevolgd door order cleanup
+- `trade:close` zonder `--execute` werkt alleen veilig voor dry-run trades
+- `trade:reset` is bedoeld voor vastgelopen lokale state; gebruik deze niet als vervanging voor echte live order cleanup

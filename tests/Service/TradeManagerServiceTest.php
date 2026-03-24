@@ -115,12 +115,45 @@ final class TradeManagerServiceTest extends TestCase
         self::assertSame([], $client->cancelledOrders);
     }
 
-    private function createService(FakeKrakenFuturesClient $client, ?Trade $activeTrade = null): TradeManagerService
+    public function testResetActiveTradeClosesLocalState(): void
+    {
+        $client = new FakeKrakenFuturesClient();
+        $trade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 1.0, 59000.0, 61000.0, 62000.0, true, new DateTimeImmutable());
+        $trade->setStatus(TradeStatus::ACTIVE);
+
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('flush');
+
+        $service = $this->createService($client, $trade, $entityManager);
+        $resetTrade = $service->resetActiveTrade();
+
+        self::assertSame($trade, $resetTrade);
+        self::assertSame(TradeStatus::CLOSED, $trade->getStatus());
+    }
+
+    public function testCloseActiveDryRunTradeDoesNotCallKraken(): void
+    {
+        $client = new FakeKrakenFuturesClient();
+        $trade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 1.0, 59000.0, 61000.0, 62000.0, true, new DateTimeImmutable());
+        $trade->setStatus(TradeStatus::ACTIVE);
+
+        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager->expects(self::once())->method('flush');
+
+        $service = $this->createService($client, $trade, $entityManager);
+        $closedTrade = $service->closeActiveTrade();
+
+        self::assertSame($trade, $closedTrade);
+        self::assertSame(TradeStatus::CLOSED, $trade->getStatus());
+        self::assertSame([], $client->sentOrders);
+    }
+
+    private function createService(FakeKrakenFuturesClient $client, ?Trade $activeTrade = null, ?EntityManagerInterface $entityManager = null): TradeManagerService
     {
         $repository = $this->createMock(TradeRepository::class);
         $repository->method('findActiveTrade')->willReturn($activeTrade);
 
-        $entityManager = $this->createMock(EntityManagerInterface::class);
+        $entityManager ??= $this->createMock(EntityManagerInterface::class);
 
         $clock = new class implements ClockInterface {
             public function now(): \DateTimeImmutable
