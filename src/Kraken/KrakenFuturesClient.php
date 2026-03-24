@@ -27,17 +27,17 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
     public function sendOrder(array $payload): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', '/sendorder', $payload), 'sendStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', ['/sendorder', '/sendOrder'], $payload), 'sendStatus');
     }
 
     public function editOrder(array $payload): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', '/editorder', $payload), 'editStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', ['/editorder', '/editOrder'], $payload), 'editStatus');
     }
 
     public function cancelOrder(string $orderId): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', '/cancelorder', ['order_id' => $orderId]), 'cancelStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', ['/cancelorder', '/cancelOrder'], ['order_id' => $orderId]), 'cancelStatus');
     }
 
     public function getOpenOrders(?string $symbol = null): array
@@ -69,74 +69,85 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
     public function batchOrder(array $payload): array
     {
-        return $this->request('POST', '/batchorder', $payload);
+        return $this->request('POST', ['/batchorder', '/batchOrder'], $payload);
     }
 
-    private function request(string $method, string $endpoint, array $payload): array
+    /**
+     * @param string|list<string> $endpoints
+     */
+    private function request(string $method, string|array $endpoints, array $payload): array
     {
         if ($this->apiKey === '' || $this->apiSecret === '') {
             throw new KrakenApiException('Kraken Futures API credentials are not configured.');
         }
 
-        $path = '/derivatives/api/v3'.$endpoint;
-        $url = rtrim($this->runtime->krakenBaseUri(), '/').$path;
         $encodedPayload = http_build_query($payload, '', '&', PHP_QUERY_RFC3986);
         $lastException = null;
-        $signPaths = array_values(array_unique([
-            $path,
-            preg_replace('#^/derivatives#', '', $path) ?? $path,
-        ]));
+        $endpointCandidates = is_array($endpoints) ? $endpoints : [$endpoints];
 
         for ($attempt = 1; $attempt <= $this->runtime->maxRetries(); ++$attempt) {
-            foreach ($signPaths as $signPath) {
-                $nonce = (string) (int) floor(microtime(true) * 1000);
+            foreach ($endpointCandidates as $endpoint) {
+                $path = '/derivatives/api/v3'.$endpoint;
+                $url = rtrim($this->runtime->krakenBaseUri(), '/').$path;
+                $signPaths = array_values(array_unique([
+                    $path,
+                    preg_replace('#^/derivatives#', '', $path) ?? $path,
+                ]));
 
-                try {
-                    $response = $this->client->request($method, $url, [
-                        'headers' => [
-                            'APIKey' => $this->apiKey,
-                            'Nonce' => $nonce,
-                            'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
-                        ],
-                        'query' => $method === 'GET' ? $payload : [],
-                        'body' => $method === 'POST' ? $payload : [],
-                        'timeout' => $this->runtime->requestTimeout(),
-                    ]);
+                foreach ($signPaths as $signPath) {
+                    $nonce = (string) (int) floor(microtime(true) * 1000);
 
-                    $statusCode = $response->getStatusCode();
-                    $data = $response->toArray(false);
-
-                    if ($statusCode >= 500 || $statusCode === 429) {
-                        throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
-                    }
-
-                    if (($data['result'] ?? null) !== 'success') {
-                        throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
-                    }
-
-                    if ($signPath !== $path) {
-                        $this->logger->info('Kraken request succeeded with alternate signing path', [
-                            'endpoint' => $endpoint,
-                            'sign_path' => $signPath,
+                    try {
+                        $response = $this->client->request($method, $url, [
+                            'headers' => [
+                                'APIKey' => $this->apiKey,
+                                'Nonce' => $nonce,
+                                'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
+                            ],
+                            'query' => $method === 'GET' ? $payload : [],
+                            'body' => $method === 'POST' ? $payload : [],
+                            'timeout' => $this->runtime->requestTimeout(),
                         ]);
-                    }
 
-                    return $data;
-                } catch (TransportExceptionInterface|KrakenApiException $exception) {
-                    $lastException = $exception;
+                        $statusCode = $response->getStatusCode();
+                        $content = $response->getContent(false);
+                        $data = json_decode($content, true);
+                        $data = is_array($data) ? $data : ['raw' => $content];
 
-                    $this->logger->warning('Kraken request failed', [
-                        'endpoint' => $endpoint,
-                        'attempt' => $attempt,
-                        'sign_path' => $signPath,
-                        'error' => $exception->getMessage(),
-                    ]);
+                        if ($statusCode >= 500 || $statusCode === 429) {
+                            throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
+                        }
 
-                    $isAuthenticationError = $exception instanceof KrakenApiException
-                        && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+                        if (($data['result'] ?? null) !== 'success') {
+                            throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
+                        }
 
-                    if (!$isAuthenticationError || $signPath === end($signPaths)) {
-                        continue;
+                        if ($signPath !== $path || $endpoint !== $endpointCandidates[0]) {
+                            $this->logger->info('Kraken request succeeded with alternate endpoint/signing path', [
+                                'endpoint' => $endpoint,
+                                'sign_path' => $signPath,
+                            ]);
+                        }
+
+                        return $data;
+                    } catch (TransportExceptionInterface|KrakenApiException $exception) {
+                        $lastException = $exception;
+
+                        $this->logger->warning('Kraken request failed', [
+                            'endpoint' => $endpoint,
+                            'attempt' => $attempt,
+                            'sign_path' => $signPath,
+                            'error' => $exception->getMessage(),
+                            'payload' => $payload,
+                            'response' => $exception instanceof KrakenApiException ? $exception->payload() : [],
+                        ]);
+
+                        $isAuthenticationError = $exception instanceof KrakenApiException
+                            && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+
+                        if (!$isAuthenticationError || $signPath === end($signPaths)) {
+                            continue;
+                        }
                     }
                 }
             }
