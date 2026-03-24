@@ -82,45 +82,67 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
         $url = rtrim($this->runtime->krakenBaseUri(), '/').$path;
         $encodedPayload = http_build_query($payload, '', '&', PHP_QUERY_RFC3986);
         $lastException = null;
+        $signPaths = array_values(array_unique([
+            $path,
+            preg_replace('#^/derivatives#', '', $path) ?? $path,
+        ]));
 
         for ($attempt = 1; $attempt <= $this->runtime->maxRetries(); ++$attempt) {
-            $nonce = (string) (int) floor(microtime(true) * 1000);
+            foreach ($signPaths as $signPath) {
+                $nonce = (string) (int) floor(microtime(true) * 1000);
 
-            try {
-                $response = $this->client->request($method, $url, [
-                    'headers' => [
-                        'APIKey' => $this->apiKey,
-                        'Nonce' => $nonce,
-                        'Authent' => $this->sign($encodedPayload, $nonce, $path),
-                    ],
-                    'query' => $method === 'GET' ? $payload : [],
-                    'body' => $method === 'POST' ? $payload : [],
-                    'timeout' => $this->runtime->requestTimeout(),
-                ]);
+                try {
+                    $response = $this->client->request($method, $url, [
+                        'headers' => [
+                            'APIKey' => $this->apiKey,
+                            'Nonce' => $nonce,
+                            'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
+                        ],
+                        'query' => $method === 'GET' ? $payload : [],
+                        'body' => $method === 'POST' ? $payload : [],
+                        'timeout' => $this->runtime->requestTimeout(),
+                    ]);
 
-                $statusCode = $response->getStatusCode();
-                $data = $response->toArray(false);
+                    $statusCode = $response->getStatusCode();
+                    $data = $response->toArray(false);
 
-                if ($statusCode >= 500 || $statusCode === 429) {
-                    throw new KrakenApiException(sprintf('Kraken HTTP %d', $statusCode), ['response' => $data]);
+                    if ($statusCode >= 500 || $statusCode === 429) {
+                        throw new KrakenApiException(sprintf('Kraken HTTP %d', $statusCode), ['response' => $data]);
+                    }
+
+                    if (($data['result'] ?? null) !== 'success') {
+                        throw new KrakenApiException((string) ($data['error'] ?? 'Unknown Kraken API error'), ['response' => $data]);
+                    }
+
+                    if ($signPath !== $path) {
+                        $this->logger->info('Kraken request succeeded with alternate signing path', [
+                            'endpoint' => $endpoint,
+                            'sign_path' => $signPath,
+                        ]);
+                    }
+
+                    return $data;
+                } catch (TransportExceptionInterface|KrakenApiException $exception) {
+                    $lastException = $exception;
+
+                    $this->logger->warning('Kraken request failed', [
+                        'endpoint' => $endpoint,
+                        'attempt' => $attempt,
+                        'sign_path' => $signPath,
+                        'error' => $exception->getMessage(),
+                    ]);
+
+                    $isAuthenticationError = $exception instanceof KrakenApiException
+                        && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+
+                    if (!$isAuthenticationError || $signPath === end($signPaths)) {
+                        continue;
+                    }
                 }
+            }
 
-                if (($data['result'] ?? null) !== 'success') {
-                    throw new KrakenApiException((string) ($data['error'] ?? 'Unknown Kraken API error'), ['response' => $data]);
-                }
-
-                return $data;
-            } catch (TransportExceptionInterface|KrakenApiException $exception) {
-                $lastException = $exception;
-                $this->logger->warning('Kraken request failed', [
-                    'endpoint' => $endpoint,
-                    'attempt' => $attempt,
-                    'error' => $exception->getMessage(),
-                ]);
-
-                if ($attempt < $this->runtime->maxRetries()) {
-                    usleep($attempt * 200_000);
-                }
+            if ($attempt < $this->runtime->maxRetries()) {
+                usleep($attempt * 200_000);
             }
         }
 
