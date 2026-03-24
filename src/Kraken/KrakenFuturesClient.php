@@ -107,11 +107,11 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
                     $data = $response->toArray(false);
 
                     if ($statusCode >= 500 || $statusCode === 429) {
-                        throw new KrakenApiException(sprintf('Kraken HTTP %d', $statusCode), ['response' => $data]);
+                        throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
                     }
 
                     if (($data['result'] ?? null) !== 'success') {
-                        throw new KrakenApiException((string) ($data['error'] ?? 'Unknown Kraken API error'), ['response' => $data]);
+                        throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
                     }
 
                     if ($signPath !== $path) {
@@ -169,13 +169,56 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
     private function normalizeOrderActionResult(array $response, string $statusKey): KrakenOrderActionResult
     {
         $status = $response[$statusKey] ?? [];
+        $orderStatus = (string) ($status['status'] ?? 'unknown');
+
+        if (!in_array($orderStatus, ['placed', 'edited', 'cancelled'], true)) {
+            throw new KrakenApiException(sprintf('Kraken order rejected: %s', $orderStatus), ['response' => $response]);
+        }
 
         return new KrakenOrderActionResult(
-            (string) ($status['status'] ?? 'unknown'),
+            $orderStatus,
             (string) ($status['order_id'] ?? $status['orderId'] ?? ''),
             isset($status['receivedTime']) ? (string) $status['receivedTime'] : null,
             $response,
         );
+    }
+
+    private function extractErrorMessage(array $data): string
+    {
+        $error = $data['error'] ?? null;
+
+        if (is_string($error) && $error !== '') {
+            return $error;
+        }
+
+        if (is_array($error) && $error !== []) {
+            return implode('; ', array_map(
+                static fn (mixed $item): string => is_scalar($item) ? (string) $item : json_encode($item, JSON_UNESCAPED_SLASHES) ?: 'unknown',
+                $error
+            ));
+        }
+
+        $sendStatus = $data['sendStatus']['status'] ?? null;
+        if (is_string($sendStatus) && $sendStatus !== '') {
+            return $sendStatus;
+        }
+
+        $editStatus = $data['editStatus']['status'] ?? null;
+        if (is_string($editStatus) && $editStatus !== '') {
+            return $editStatus;
+        }
+
+        $cancelStatus = $data['cancelStatus']['status'] ?? null;
+        if (is_string($cancelStatus) && $cancelStatus !== '') {
+            return $cancelStatus;
+        }
+
+        $message = $data['message'] ?? null;
+        if (is_string($message) && $message !== '') {
+            return $message;
+        }
+
+        return 'Unknown Kraken API error: '.json_encode($data, JSON_UNESCAPED_SLASHES);
     }
 
     private function normalizeOpenOrder(array $order): KrakenOpenOrder
