@@ -16,6 +16,8 @@ use Symfony\Contracts\HttpClient\HttpClientInterface;
 
 final class KrakenFuturesClient implements KrakenFuturesClientInterface
 {
+    private static int $lastNonce = 0;
+
     public function __construct(
         private readonly HttpClientInterface $client,
         private readonly TradingRuntime $runtime,
@@ -27,17 +29,17 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
     public function sendOrder(array $payload): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', ['/sendorder', '/sendOrder'], $payload), 'sendStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', '/sendorder', $payload), 'sendStatus');
     }
 
     public function editOrder(array $payload): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', ['/editorder', '/editOrder'], $payload), 'editStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', '/editorder', $payload), 'editStatus');
     }
 
     public function cancelOrder(string $orderId): KrakenOrderActionResult
     {
-        return $this->normalizeOrderActionResult($this->request('POST', ['/cancelorder', '/cancelOrder'], ['order_id' => $orderId]), 'cancelStatus');
+        return $this->normalizeOrderActionResult($this->request('POST', '/cancelorder', ['order_id' => $orderId]), 'cancelStatus');
     }
 
     public function getOpenOrders(?string $symbol = null): array
@@ -69,13 +71,10 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
     public function batchOrder(array $payload): array
     {
-        return $this->request('POST', ['/batchorder', '/batchOrder'], $payload);
+        return $this->request('POST', '/batchorder', $payload);
     }
 
-    /**
-     * @param string|list<string> $endpoints
-     */
-    private function request(string $method, string|array $endpoints, array $payload): array
+    private function request(string $method, string $endpoint, array $payload): array
     {
         if ($this->apiKey === '' || $this->apiSecret === '') {
             throw new KrakenApiException('Kraken Futures API credentials are not configured.');
@@ -83,80 +82,78 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
         $encodedPayload = http_build_query($payload, '', '&', PHP_QUERY_RFC3986);
         $lastException = null;
-        $endpointCandidates = is_array($endpoints) ? $endpoints : [$endpoints];
+        $path = '/derivatives/api/v3'.$endpoint;
+        $url = rtrim($this->runtime->krakenBaseUri(), '/').$path;
 
         for ($attempt = 1; $attempt <= $this->runtime->maxRetries(); ++$attempt) {
-            foreach ($endpointCandidates as $endpoint) {
-                $path = '/derivatives/api/v3'.$endpoint;
-                $url = rtrim($this->runtime->krakenBaseUri(), '/').$path;
-                $signPaths = array_values(array_unique([
-                    $path,
-                    preg_replace('#^/derivatives#', '', $path) ?? $path,
-                ]));
-                $nonceVariants = $method === 'POST'
-                    ? [(string) (int) floor(microtime(true) * 1000), '']
-                    : [(string) (int) floor(microtime(true) * 1000)];
+            $signPaths = array_values(array_unique([
+                $path,
+                preg_replace('#^/derivatives#', '', $path) ?? $path,
+            ]));
+            $nonceVariants = $method === 'POST'
+                ? [$this->generateNonce(), '']
+                : [''];
 
-                foreach ($signPaths as $signPath) {
-                    foreach ($nonceVariants as $nonce) {
-                        try {
-                            $headers = [
-                                'APIKey' => $this->apiKey,
-                                'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
-                            ];
+            foreach ($signPaths as $signPath) {
+                foreach ($nonceVariants as $nonce) {
+                    try {
+                        $headers = [
+                            'APIKey' => $this->apiKey,
+                            'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
+                        ];
 
-                            if ($nonce !== '') {
-                                $headers['Nonce'] = $nonce;
-                            }
+                        if ($nonce !== '') {
+                            $headers['Nonce'] = $nonce;
+                        }
 
-                            $response = $this->client->request($method, $url, [
-                                'headers' => $headers,
-                                'query' => $method === 'GET' ? $payload : [],
-                                'body' => $method === 'POST' ? $payload : [],
-                                'timeout' => $this->runtime->requestTimeout(),
-                            ]);
+                        $response = $this->client->request($method, $url, [
+                            'headers' => $headers,
+                            'query' => $method === 'GET' ? $payload : [],
+                            'body' => $method === 'POST' ? $payload : [],
+                            'timeout' => $this->runtime->requestTimeout(),
+                        ]);
 
-                            $statusCode = $response->getStatusCode();
-                            $content = $response->getContent(false);
-                            $data = json_decode($content, true);
-                            $data = is_array($data) ? $data : ['raw' => $content];
+                        $statusCode = $response->getStatusCode();
+                        $content = $response->getContent(false);
+                        $data = json_decode($content, true);
+                        $data = is_array($data) ? $data : ['raw' => $content];
 
-                            if ($statusCode >= 500 || $statusCode === 429) {
-                                throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
-                            }
+                        if ($statusCode >= 500 || $statusCode === 429) {
+                            throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
+                        }
 
-                            if (($data['result'] ?? null) !== 'success') {
-                                throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
-                            }
+                        if (($data['result'] ?? null) !== 'success') {
+                            throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
+                        }
 
-                            if ($signPath !== $path || $endpoint !== $endpointCandidates[0] || $nonce === '') {
-                                $this->logger->info('Kraken request succeeded with alternate endpoint/signing mode', [
-                                    'endpoint' => $endpoint,
-                                    'sign_path' => $signPath,
-                                    'nonce_mode' => $nonce === '' ? 'omitted' : 'header',
-                                ]);
-                            }
-
-                            return $data;
-                        } catch (TransportExceptionInterface|KrakenApiException $exception) {
-                            $lastException = $exception;
-
-                            $this->logger->warning('Kraken request failed', [
+                        if ($signPath !== $path || $nonce === '') {
+                            $this->logger->info('Kraken request succeeded with alternate signing mode', [
                                 'endpoint' => $endpoint,
-                                'attempt' => $attempt,
                                 'sign_path' => $signPath,
                                 'nonce_mode' => $nonce === '' ? 'omitted' : 'header',
-                                'error' => $exception->getMessage(),
-                                'payload' => $payload,
-                                'response' => $exception instanceof KrakenApiException ? $exception->payload() : [],
                             ]);
+                        }
 
-                            $isAuthenticationError = $exception instanceof KrakenApiException
-                                && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+                        return $data;
+                    } catch (TransportExceptionInterface|KrakenApiException $exception) {
+                        $lastException = $exception;
 
-                            if (!$isAuthenticationError || ($signPath === end($signPaths) && $nonce === end($nonceVariants))) {
-                                continue;
-                            }
+                        $this->logger->warning('Kraken request failed', [
+                            'endpoint' => $endpoint,
+                            'attempt' => $attempt,
+                            'sign_path' => $signPath,
+                            'nonce_mode' => $nonce === '' ? 'omitted' : 'header',
+                            'error' => $exception->getMessage(),
+                            'payload' => $payload,
+                            'response' => $exception instanceof KrakenApiException ? $exception->payload() : [],
+                        ]);
+
+                        $isAuthenticationError = $exception instanceof KrakenApiException
+                            && (str_contains(strtolower($exception->getMessage()), 'authenticationerror')
+                                || str_contains(strtolower($exception->getMessage()), 'nonceduplicate'));
+
+                        if (!$isAuthenticationError || ($signPath === end($signPaths) && $nonce === end($nonceVariants))) {
+                            continue;
                         }
                     }
                 }
@@ -185,6 +182,19 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
         }
 
         return base64_encode(hash_hmac('sha512', $hash, $secret, true));
+    }
+
+    private function generateNonce(): string
+    {
+        $nonce = (int) floor(microtime(true) * 1000);
+
+        if ($nonce <= self::$lastNonce) {
+            $nonce = self::$lastNonce + 1;
+        }
+
+        self::$lastNonce = $nonce;
+
+        return (string) $nonce;
     }
 
     private function normalizeOrderActionResult(array $response, string $statusKey): KrakenOrderActionResult
