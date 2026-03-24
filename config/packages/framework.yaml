@@ -1,0 +1,10 @@
+framework:
+    secret: '%env(APP_SECRET)%'
+    http_method_override: false
+    handle_all_throwables: true
+    lock: '%env(resolve:LOCK_DSN)%'
+    http_client:
+        scoped_clients:
+            kraken_futures.client:
+                headers:
+                    Accept: 'application/json'

@@ -1,0 +1,47 @@
+parameters:
+    app.dry_run: '%env(bool:APP_DRY_RUN)%'
+    app.default_symbol: '%env(string:APP_DEFAULT_SYMBOL)%'
+    app.tp1_ratio: '%env(float:APP_TP1_RATIO)%'
+    app.request_timeout: '%env(int:APP_REQUEST_TIMEOUT)%'
+    app.max_retries: '%env(int:APP_MAX_RETRIES)%'
+    app.kraken_sandbox: '%env(bool:KRAKEN_FUTURES_SANDBOX)%'
+    app.kraken_live_base_uri: '%env(string:KRAKEN_FUTURES_BASE_URI)%'
+    app.kraken_sandbox_base_uri: '%env(string:KRAKEN_FUTURES_SANDBOX_BASE_URI)%'
+    app.kraken_api_key: '%env(string:KRAKEN_FUTURES_API_KEY)%'
+    app.kraken_api_secret: '%env(string:KRAKEN_FUTURES_API_SECRET)%'
+
+services:
+    _defaults:
+        autowire: true
+        autoconfigure: true
+
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+
+    App\Config\TradingRuntime:
+        arguments:
+            $dryRunByDefault: '%app.dry_run%'
+            $defaultSymbol: '%app.default_symbol%'
+            $tp1Ratio: '%app.tp1_ratio%'
+            $sandbox: '%app.kraken_sandbox%'
+            $liveBaseUri: '%app.kraken_live_base_uri%'
+            $sandboxBaseUri: '%app.kraken_sandbox_base_uri%'
+            $requestTimeout: '%app.request_timeout%'
+            $maxRetries: '%app.max_retries%'
+
+    App\Kraken\KrakenFuturesClientInterface: '@App\Kraken\KrakenFuturesClient'
+
+    App\Service\TradeManagerService:
+        arguments:
+            $tp1Ratio: '%app.tp1_ratio%'
+
+    Psr\Clock\ClockInterface: '@clock'
+
+    App\Kraken\KrakenFuturesClient:
+        arguments:
+            $client: '@kraken_futures.client'
+            $apiKey: '%app.kraken_api_key%'
+            $apiSecret: '%app.kraken_api_secret%'
