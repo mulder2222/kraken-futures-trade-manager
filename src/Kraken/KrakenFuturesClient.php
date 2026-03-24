@@ -204,7 +204,9 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
         if (is_array($error) && $error !== []) {
             return implode('; ', array_map(
-                static fn (mixed $item): string => is_scalar($item) ? (string) $item : json_encode($item, JSON_UNESCAPED_SLASHES) ?: 'unknown',
+                static fn (mixed $item): string => is_scalar($item)
+                    ? (string) $item
+                    : (json_encode($item, JSON_UNESCAPED_SLASHES) ?: 'unknown'),
                 $error
             ));
         }
