@@ -87,11 +87,11 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
 
         for ($attempt = 1; $attempt <= $this->runtime->maxRetries(); ++$attempt) {
             $signPaths = array_values(array_unique([
-                $path,
                 preg_replace('#^/derivatives#', '', $path) ?? $path,
+                $path,
             ]));
             $nonceVariants = $method === 'POST'
-                ? [$this->generateNonce(), '']
+                ? ['', $this->generateNonce()]
                 : [''];
 
             foreach ($signPaths as $signPath) {

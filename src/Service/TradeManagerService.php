@@ -383,7 +383,7 @@ final class TradeManagerService
             'symbol' => $request->symbol,
             'side' => $request->side->entryOrderSide(),
             'size' => $this->format($request->size),
-            'orderType' => $request->entryType,
+            'orderType' => $request->entryType === 'limit' ? 'lmt' : 'market',
         ];
 
         if ($request->entryPrice !== null) {
@@ -399,7 +399,7 @@ final class TradeManagerService
             'symbol' => $trade->getSymbol(),
             'side' => $trade->getSide()->exitOrderSide(),
             'size' => $this->format($size),
-            'orderType' => 'stop',
+            'orderType' => 'stp',
             'stopPrice' => $this->format($stopPrice),
             'reduceOnly' => 'true',
             'triggerSignal' => 'mark',
