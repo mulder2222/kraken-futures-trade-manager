@@ -59,6 +59,7 @@ final class TradeManagerService
                 $request->stopLossPrice,
                 $request->tp1Price,
                 $request->tp2Price,
+                !$execute,
                 $this->now(),
             );
             $trade->setStatus(TradeStatus::ACTIVE);
@@ -122,6 +123,14 @@ final class TradeManagerService
 
             if ($trade === null) {
                 return null;
+            }
+
+            if ($trade->isDryRun()) {
+                $this->logger->info('Dry-run trade sync skipped external Kraken checks', [
+                    'trade_id' => $trade->getId(),
+                ]);
+
+                return $trade;
             }
 
             $position = $this->findPositionForTrade($trade);
@@ -204,6 +213,13 @@ final class TradeManagerService
 
     public function closeTrade(Trade $trade, bool $execute = false): void
     {
+        if ($trade->isDryRun()) {
+            $trade->setStatus(TradeStatus::CLOSED);
+            $this->entityManager->flush();
+
+            return;
+        }
+
         $this->cleanupTradeOrders($trade, $this->findOrdersForTrade($trade), $execute);
         $trade->setStatus(TradeStatus::CLOSED);
         $this->entityManager->flush();

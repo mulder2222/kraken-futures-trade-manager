@@ -29,7 +29,7 @@ final class TradeManagerServiceTest extends TestCase
     public function testTp1FilledCancelsOldStopAndPlacesBreakEvenStop(): void
     {
         $client = new FakeKrakenFuturesClient();
-        $trade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 2.0, 59000.0, 61000.0, 62000.0, new DateTimeImmutable());
+        $trade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 2.0, 59000.0, 61000.0, 62000.0, false, new DateTimeImmutable());
         $trade->setStatus(TradeStatus::ACTIVE);
         $trade->setKrakenOrderId('stop_loss', 'sl-1');
         $trade->setKrakenOrderId('tp1', 'tp1-1');
@@ -83,7 +83,7 @@ final class TradeManagerServiceTest extends TestCase
 
     public function testNoSecondTradeAllowedWhileFirstIsActive(): void
     {
-        $existingTrade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 1.0, 59000.0, 61000.0, 62000.0, new DateTimeImmutable());
+        $existingTrade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 1.0, 59000.0, 61000.0, 62000.0, false, new DateTimeImmutable());
         $existingTrade->setStatus(TradeStatus::ACTIVE);
         $service = $this->createService(new FakeKrakenFuturesClient(), $existingTrade);
 
@@ -99,6 +99,20 @@ final class TradeManagerServiceTest extends TestCase
             59000.0,
             58000.0,
         ));
+    }
+
+    public function testDryRunTradeMonitorSkipsKrakenApiCalls(): void
+    {
+        $client = new FakeKrakenFuturesClient();
+        $trade = new Trade('PF_XBTUSD', TradeSide::LONG, 60000.0, 1.0, 59000.0, 61000.0, 62000.0, true, new DateTimeImmutable());
+        $trade->setStatus(TradeStatus::ACTIVE);
+
+        $service = $this->createService($client, $trade);
+        $syncedTrade = $service->syncTradeState();
+
+        self::assertSame($trade, $syncedTrade);
+        self::assertSame([], $client->sentOrders);
+        self::assertSame([], $client->cancelledOrders);
     }
 
     private function createService(FakeKrakenFuturesClient $client, ?Trade $activeTrade = null): TradeManagerService

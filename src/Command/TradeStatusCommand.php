@@ -38,13 +38,19 @@ final class TradeStatusCommand extends Command
             return Command::SUCCESS;
         }
 
-        $position = $this->krakenClient->getOpenPositions($trade->getSymbol())[0] ?? null;
-        $openOrders = $this->krakenClient->getOpenOrders($trade->getSymbol());
+        $position = null;
+        $openOrders = [];
+
+        if (!$trade->isDryRun()) {
+            $position = $this->krakenClient->getOpenPositions($trade->getSymbol())[0] ?? null;
+            $openOrders = $this->krakenClient->getOpenOrders($trade->getSymbol());
+        }
 
         $table = new Table($output);
         $table->setHeaders(['Field', 'Value']);
         $table->setRows([
             ['Trade ID', (string) ($trade->getId() ?? 0)],
+            ['Mode', $trade->isDryRun() ? 'dry-run' : 'live'],
             ['Symbol', $trade->getSymbol()],
             ['Side', $trade->getSide()->value],
             ['Status', $trade->getStatus()->value],

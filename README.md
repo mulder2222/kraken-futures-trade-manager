@@ -58,6 +58,12 @@ php bin/console trade:cleanup --execute
 composer test
 ```
 
+Als je al een lokale database had voordat de `dry_run` kolom is toegevoegd, run dan nogmaals:
+
+```bash
+php bin/console doctrine:migrations:migrate
+```
+
 ## Kraken Futures aannames
 
 - Authenticatie volgt Kraken Futures REST v3 signing met `postData + Nonce + endpointPath`, `SHA-256` en daarna `HMAC-SHA-512` over de SHA output met het base64-decoded secret. Bron: [Futures REST guide](https://docs.kraken.com/api/docs/guides/futures-rest/).
@@ -73,3 +79,9 @@ composer test
 - `src/Entity/Trade.php`: trade state
 - `src/Command/*`: CLI workflows
 - `tests/Service/TradeManagerServiceTest.php`: kernscenario's
+
+## Dry-run gedrag
+
+- trades die zonder `--execute` zijn geopend worden als lokale dry-run trade opgeslagen
+- `trade:monitor` doet voor zulke trades geen Kraken API-calls
+- `trade:status` toont de opgeslagen trade gewoon zonder live exchange data op te halen

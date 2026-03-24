@@ -49,6 +49,9 @@ class Trade
     #[ORM\Column]
     private bool $breakEvenMoved = false;
 
+    #[ORM\Column]
+    private bool $dryRun;
+
     #[ORM\Column(type: 'json')]
     private array $krakenOrderIds = [];
 
@@ -66,6 +69,7 @@ class Trade
         float $stopLossPrice,
         float $tp1Price,
         float $tp2Price,
+        bool $dryRun,
         DateTimeImmutable $createdAt,
     ) {
         $this->symbol = $symbol;
@@ -75,6 +79,7 @@ class Trade
         $this->stopLossPrice = $this->formatDecimal($stopLossPrice);
         $this->tp1Price = $this->formatDecimal($tp1Price);
         $this->tp2Price = $this->formatDecimal($tp2Price);
+        $this->dryRun = $dryRun;
         $this->createdAt = $createdAt;
         $this->updatedAt = $createdAt;
     }
@@ -144,6 +149,11 @@ class Trade
     public function isBreakEvenMoved(): bool
     {
         return $this->breakEvenMoved;
+    }
+
+    public function isDryRun(): bool
+    {
+        return $this->dryRun;
     }
 
     public function markBreakEvenMoved(): void
