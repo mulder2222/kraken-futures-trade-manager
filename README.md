@@ -50,6 +50,7 @@ php bin/console trade:open --side=long --size=1 --entry-type=limit --entry-price
 7. Daarna:
 
 ```bash
+php bin/console kraken:test-auth
 php bin/console trade:monitor
 php bin/console trade:monitor --execute
 php bin/console trade:status
@@ -96,3 +97,9 @@ php bin/console doctrine:migrations:migrate
 - `trade:close --execute` is bedoeld voor live trades en sluit de resterende positie market reduce-only af, gevolgd door order cleanup
 - `trade:close` zonder `--execute` werkt alleen veilig voor dry-run trades
 - `trade:reset` is bedoeld voor vastgelopen lokale state; gebruik deze niet als vervanging voor echte live order cleanup
+
+## Auth Test
+
+- `php bin/console kraken:test-auth` doet een read-only private API call naar Kraken Futures
+- gebruik dit eerst nadat je nieuwe demo keys in `.env` hebt gezet
+- als dit faalt met `authenticationError`, zit het vrijwel zeker in de key/secret, sandbox/live mismatch, of request signing
