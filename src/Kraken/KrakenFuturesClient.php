@@ -93,60 +93,70 @@ final class KrakenFuturesClient implements KrakenFuturesClientInterface
                     $path,
                     preg_replace('#^/derivatives#', '', $path) ?? $path,
                 ]));
+                $nonceVariants = $method === 'POST'
+                    ? [(string) (int) floor(microtime(true) * 1000), '']
+                    : [(string) (int) floor(microtime(true) * 1000)];
 
                 foreach ($signPaths as $signPath) {
-                    $nonce = (string) (int) floor(microtime(true) * 1000);
-
-                    try {
-                        $response = $this->client->request($method, $url, [
-                            'headers' => [
+                    foreach ($nonceVariants as $nonce) {
+                        try {
+                            $headers = [
                                 'APIKey' => $this->apiKey,
-                                'Nonce' => $nonce,
                                 'Authent' => $this->sign($encodedPayload, $nonce, $signPath),
-                            ],
-                            'query' => $method === 'GET' ? $payload : [],
-                            'body' => $method === 'POST' ? $payload : [],
-                            'timeout' => $this->runtime->requestTimeout(),
-                        ]);
+                            ];
 
-                        $statusCode = $response->getStatusCode();
-                        $content = $response->getContent(false);
-                        $data = json_decode($content, true);
-                        $data = is_array($data) ? $data : ['raw' => $content];
+                            if ($nonce !== '') {
+                                $headers['Nonce'] = $nonce;
+                            }
 
-                        if ($statusCode >= 500 || $statusCode === 429) {
-                            throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
-                        }
-
-                        if (($data['result'] ?? null) !== 'success') {
-                            throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
-                        }
-
-                        if ($signPath !== $path || $endpoint !== $endpointCandidates[0]) {
-                            $this->logger->info('Kraken request succeeded with alternate endpoint/signing path', [
-                                'endpoint' => $endpoint,
-                                'sign_path' => $signPath,
+                            $response = $this->client->request($method, $url, [
+                                'headers' => $headers,
+                                'query' => $method === 'GET' ? $payload : [],
+                                'body' => $method === 'POST' ? $payload : [],
+                                'timeout' => $this->runtime->requestTimeout(),
                             ]);
-                        }
 
-                        return $data;
-                    } catch (TransportExceptionInterface|KrakenApiException $exception) {
-                        $lastException = $exception;
+                            $statusCode = $response->getStatusCode();
+                            $content = $response->getContent(false);
+                            $data = json_decode($content, true);
+                            $data = is_array($data) ? $data : ['raw' => $content];
 
-                        $this->logger->warning('Kraken request failed', [
-                            'endpoint' => $endpoint,
-                            'attempt' => $attempt,
-                            'sign_path' => $signPath,
-                            'error' => $exception->getMessage(),
-                            'payload' => $payload,
-                            'response' => $exception instanceof KrakenApiException ? $exception->payload() : [],
-                        ]);
+                            if ($statusCode >= 500 || $statusCode === 429) {
+                                throw new KrakenApiException(sprintf('Kraken HTTP %d: %s', $statusCode, $this->extractErrorMessage($data)), ['response' => $data]);
+                            }
 
-                        $isAuthenticationError = $exception instanceof KrakenApiException
-                            && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+                            if (($data['result'] ?? null) !== 'success') {
+                                throw new KrakenApiException($this->extractErrorMessage($data), ['response' => $data]);
+                            }
 
-                        if (!$isAuthenticationError || $signPath === end($signPaths)) {
-                            continue;
+                            if ($signPath !== $path || $endpoint !== $endpointCandidates[0] || $nonce === '') {
+                                $this->logger->info('Kraken request succeeded with alternate endpoint/signing mode', [
+                                    'endpoint' => $endpoint,
+                                    'sign_path' => $signPath,
+                                    'nonce_mode' => $nonce === '' ? 'omitted' : 'header',
+                                ]);
+                            }
+
+                            return $data;
+                        } catch (TransportExceptionInterface|KrakenApiException $exception) {
+                            $lastException = $exception;
+
+                            $this->logger->warning('Kraken request failed', [
+                                'endpoint' => $endpoint,
+                                'attempt' => $attempt,
+                                'sign_path' => $signPath,
+                                'nonce_mode' => $nonce === '' ? 'omitted' : 'header',
+                                'error' => $exception->getMessage(),
+                                'payload' => $payload,
+                                'response' => $exception instanceof KrakenApiException ? $exception->payload() : [],
+                            ]);
+
+                            $isAuthenticationError = $exception instanceof KrakenApiException
+                                && str_contains(strtolower($exception->getMessage()), 'authenticationerror');
+
+                            if (!$isAuthenticationError || ($signPath === end($signPaths) && $nonce === end($nonceVariants))) {
+                                continue;
+                            }
                         }
                     }
                 }
